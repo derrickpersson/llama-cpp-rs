@@ -11,6 +11,7 @@ use clap::Parser;
 use hf_hub::api::sync::ApiBuilder;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::ggml_time_us;
+use llama_cpp_2::grammar::LlamaGrammar;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::kv_overrides::ParamOverrideValue;
@@ -25,6 +26,8 @@ use std::path::PathBuf;
 use std::pin::pin;
 use std::str::FromStr;
 use std::time::Duration;
+use llama_cpp_2::context::sample::sampler::Sampler;
+use llama_cpp_2::token::LlamaToken;
 
 #[derive(clap::Parser, Debug, Clone)]
 struct Args {
@@ -37,6 +40,9 @@ struct Args {
     /// Read the prompt from a file
     #[clap(short = 'f', long, help = "prompt file to start generation")]
     file: Option<String>,
+    /// Set a grammar file
+    #[clap(long, help = "set a grammar file")]
+    grammar_file: Option<String>,
     /// set the length of the prompt + output in tokens
     #[arg(long, default_value_t = 32)]
     n_len: i32,
@@ -123,6 +129,7 @@ fn main() -> Result<()> {
         model,
         prompt,
         file,
+        grammar_file,
         #[cfg(feature = "cublas")]
         disable_gpu,
         key_value_overrides,
@@ -171,7 +178,6 @@ fn main() -> Result<()> {
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
         .with_context(|| "unable to load model")?;
-
     // initialize the context
     let mut ctx_params = LlamaContextParams::default()
         .with_n_ctx(ctx_size.or(Some(NonZeroU32::new(2048).unwrap())))
@@ -186,6 +192,16 @@ fn main() -> Result<()> {
     let mut ctx = model
         .new_context(&backend, ctx_params)
         .with_context(|| "unable to create the llama_context")?;
+
+
+    // load the grammar
+    let mut grammar = None;
+    if let Some(grammar_file) = grammar_file {
+        let grammar_str = std::fs::read_to_string(&grammar_file)
+            .with_context(|| format!("unable to read {grammar_file}"))?;
+        grammar = Some(LlamaGrammar::from_str(&grammar_str)?);
+    };
+    
 
     // tokenize the prompt
 
@@ -240,15 +256,44 @@ either reduce n_len or increase n_ctx"
 
     let t_main_start = ggml_time_us();
 
+    let grammar_clone = grammar.clone();
+
+    // // Sample a token greedily and add to the history.
+    // let mut finalizer = &|mut candidates: LlamaTokenDataArray, mut context: LlamaContext| {
+    //     context.sample_token_softmax(&mut candidates);
+    //     candidates
+    // };
+    // Sample a token greedily and add to the history.
+    let finalizer = &|mut canidates: LlamaTokenDataArray, history: &mut Vec<LlamaToken>| {
+        canidates.sample_softmax(None);
+        let token = canidates.data[0];
+        history.push(token.id());
+        vec![token]
+    };
+    let mut history: Vec<LlamaToken> = vec![];
+    let mut sampler = Sampler::new(finalizer);
+    
+    sampler.push_step(&|c, history| c.sample_repetition_penalty(None, history, 64, 1.0, 0.0, 0.0));
+    sampler.push_step(&|c, _| c.sample_top_k(None, 40, 1));
+    sampler.push_step(&|c, _| c.sample_tail_free(None, 1.0, 1));
+    sampler.push_step(&|c, _| c.sample_typical(None, 1.0, 1));
+    sampler.push_step(&|c, _| c.sample_top_p(None, 0.95, 1));
+    sampler.push_step(&|c, _| c.sample_min_p(None, 0.05, 1));
+    sampler.push_step(&|c, _| c.sample_temp(None, 0.8));
+
     while n_cur <= n_len {
         // sample the next token
         {
             let candidates = ctx.candidates_ith(batch.n_tokens() - 1);
 
-            let candidates_p = LlamaTokenDataArray::from_iter(candidates, false);
+            let mut candidates_p = LlamaTokenDataArray::from_iter(candidates, false);
+
+            if grammar_clone.is_some() {
+                ctx.sample_grammar(&mut candidates_p, &grammar_clone.as_ref().unwrap());
+            }
 
             // sample the most likely token
-            let new_token_id = ctx.sample_token_greedy(candidates_p);
+            let new_token_id = sampler.sample(&mut history, candidates_p)[0].id();
 
             // is it an end of stream?
             if new_token_id == model.token_eos() {
