@@ -37,6 +37,23 @@ impl LlamaContext<'_> {
         }
     }
 
+    // pub fn sample_apply_guidance(
+    //     &mut self,
+    //     llama_token_data_array: &mut LlamaTokenDataArray,
+    //     guidance: &str,
+    // ) {
+    //     unsafe {
+    //         llama_token_data_array.modify_as_c_llama_token_data_array(|c_llama_token_data_array| {
+    //             llama_cpp_sys_2::llama_sample_apply_guidance(
+    //                 self.context.as_ptr(),
+    //                 c_llama_token_data_array,
+    //                 guidance.as_ptr() as *const i8,
+    //                 guidance.len(),
+    //             );
+    //         });
+    //     }
+    // }
+
     /// See [`LlamaTokenDataArray::sample_temp`]
     pub fn sample_temp(&mut self, token_data: &mut LlamaTokenDataArray, temperature: f32) {
         token_data.sample_temp(Some(self), temperature);
