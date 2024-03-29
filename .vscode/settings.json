@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "locale": "cpp",
+        "vector": "cpp",
+        "string": "cpp",
+        "deque": "cpp",
+        "functional": "cpp",
+        "list": "cpp",
+        "map": "cpp",
+        "set": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "__split_buffer": "cpp"
+    }
+}
