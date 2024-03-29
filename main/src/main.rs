@@ -2,6 +2,7 @@
 
 use llama_cpp_2::context;
 use llama_cpp_2::context::sample::sampler::{SampleStep, Sampler};
+use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::AddBos;
 use llama_cpp_2::token::data_array::LlamaTokenDataArray;
 use llama_cpp_2::token::LlamaToken;
@@ -64,22 +65,9 @@ fn main() -> Result<()> {
     //generate: n_ctx = 512, n_batch = 2048, n_predict = 128, n_keep = 1
 
     // new tokens to predict @default -1
-    let n_predit: i32 = 128;
+    let n_predict: i32 = 128;
     // number of tokens to keep from initial prompt @default 0
     let n_keep: i32 = 1;
-
-    let top_k = 40;
-    let tail_free = 1.0;
-    let typical = 1.0;
-    let top_p = 0.95;
-    let min_p = 0.05;
-    let temp = 0.8;
-    // number of previous tokens to remember
-    let n_prev= 64.0;
-    // if greater than 0, output the probabilities of top n_probs tokens. 
-    let n_probs = 0;
-
-
 
     let finalizer = &|mut canidates: LlamaTokenDataArray, history: &mut Vec<LlamaToken>| {
         canidates.sample_softmax(None);
@@ -125,8 +113,72 @@ fn main() -> Result<()> {
     // println!("Sampling: {}", )
     // LOG_TEE("sampling: \n%s\n", llama_sampling_print(sparams).c_str());
     print_sampling_order(&sampler);
-    println!("generate: n_ctx = {}, n_batch = {}, n_predict = {}, n_keep = {}", n_ctx, ctx_params.n_batch(), n_predit, n_keep);
+    println!("generate: n_ctx = {}, n_batch = {}, n_predict = {}, n_keep = {}", n_ctx, ctx_params.n_batch(), n_predict, n_keep);
     // TODO: Support CFG
+
+    // TODO: Group-attention support?
+
+
+    let n_past             = 0;
+    let n_remain: i32 = n_predict.clone();
+    let n_consumed         = 0;
+    let n_session_consumed = 0;
+    let n_past_guidance    = 0;
+
+    let input_tokens: Vec<LlamaToken> = vec![];
+    let output_tokens: Vec<LlamaToken> = vec![];
+
+    let mut embd: Vec<LlamaToken> = vec![];
+
+    while n_remain != 0 {
+        if !embd.is_empty() {
+            let max_embd_size: usize = (n_ctx - 4).try_into().unwrap(); // Explained at ln 527 in main.cpp
+
+            if  embd.len() > max_embd_size {
+                let skipped_tokens = embd.len() - max_embd_size;
+                embd.truncate(max_embd_size);
+
+                print!("<<input too long: skipped {} token(s)>>", skipped_tokens);
+            }
+
+
+            // Implemented up till - ln457 in main.cpp
+            // Implement Group Context
+
+
+            // WIP: ln 524 for main.cpp
+            // for i in (0..embd.len()).step_by(ctx_params.n_batch().try_into().unwrap()) {
+            //     let n_eval = std::cmp::min(embd.len() - i, ctx_params.n_batch().try_into().unwrap());
+    
+            //     // LOG("eval: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, embd).c_str());
+            //     // Assuming LOG_TOKENS_TOSTR_PRETTY is a function that needs to be implemented in Rust
+            //     println!("eval: {}", log_tokens_to_str_pretty(&ctx, &embd)); // Placeholder for actual implementation
+    
+            //     // if llama_decode(ctx, llama_batch_get_one(&embd[i], n_eval, n_past, 0)) {
+            //     //     LOG_TEE("%s : failed to eval\n", __func__);
+            //     //     return Err(anyhow!("failed to eval"));
+            //     // }
+            //     // Assuming llama_decode and llama_batch_get_one are functions that need to be implemented in Rust
+                
+            //     LlamaBatch::add(&embd[i], n_eval.try_into().unwrap() , n_past.try_into().unwrap() ,  false);
+
+            //     if llama_decode(&ctx, llama_batch_get_one(&embd[i..], n_eval, n_past, 0))? {
+            //         eprintln!("{} : failed to eval", std::any::type_name::<Self>());
+            //         return Err(anyhow!("failed to eval"));
+            //     }
+    
+            //     n_past += n_eval;
+    
+            //     println!("n_past = {}", n_past);
+            //     // Display total tokens alongside total time
+            //     if ctx_params.n_batch().try_into().unwrap() > 0 && n_past % ctx_params.n_batch().try_into().unwrap() == 0 {
+            //         eprintln!("\n\033[31mTokens consumed so far = {} / {} \033[0m\n", n_past, n_ctx);
+            //     }
+            // }
+            
+
+        }
+    }
 
     Ok(())
 }
