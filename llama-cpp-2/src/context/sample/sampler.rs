@@ -46,8 +46,33 @@ use crate::token::data::LlamaTokenData;
 use crate::token::data_array::LlamaTokenDataArray;
 use std::fmt::{Debug, Formatter};
 
+
+/// Debuggable step call
+pub struct DebuggableFunction<C>(
+    pub Box<dyn Fn(&mut LlamaTokenDataArray, &mut C) + 'static>
+);
+
+impl<C> std::fmt::Debug for DebuggableFunction<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DebuggableFunction").field(&"...").finish()
+    }
+}
+
+#[derive(Debug)]
 /// A single step to sample tokens from the remaining candidates.
-pub type SampleStep<C> = dyn Fn(&mut LlamaTokenDataArray, &mut C);
+pub struct SampleStep<C> {
+    /// Named step.
+    pub name: String,
+    /// Function call of the step.
+    pub function: DebuggableFunction<C>,
+}
+
+impl<C> SampleStep<C> {
+    /// Initialize a new step with a name and a function.
+    pub fn new(name: String, function: Box<dyn Fn(&mut LlamaTokenDataArray, &mut C) + 'static>) -> Self {
+        Self { name, function: DebuggableFunction(function) }
+    }
+}
 
 /// The final step to select tokens from the remaining candidates.
 pub type SampleFinalizer<C> = dyn Fn(LlamaTokenDataArray, &mut C) -> Vec<LlamaTokenData>;
@@ -105,7 +130,7 @@ impl<'a, T> Sampler<'a, T> {
         mut candidates: LlamaTokenDataArray,
     ) -> Vec<LlamaTokenData> {
         for step in &self.steps {
-            step(&mut candidates, context);
+            (step.function.0)(&mut candidates, context);
         }
         (self.finalizer)(candidates, context)
     }
